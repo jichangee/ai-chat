@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { AIBot, RSSFeed } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Plus, Edit, Trash2, RefreshCw } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ArrowLeft, Plus, Edit, Trash2, RefreshCw, Send } from 'lucide-react';
 import { AIBotForm } from '@/components/settings/ai-bot-form';
 import { RSSFeedForm } from '@/components/settings/rss-feed-form';
 import { NotificationForm } from '@/components/settings/notification-form';
@@ -20,15 +22,19 @@ export default function SettingsPage() {
   const [bots, setBots] = useState<AIBot[]>([]);
   const [selectedBot, setSelectedBot] = useState<AIBot | undefined>();
   const [showBotForm, setShowBotForm] = useState(false);
+  const [loadingBots, setLoadingBots] = useState(true);
   
   // RSS 订阅状态
   const [feeds, setFeeds] = useState<RSSFeed[]>([]);
   const [selectedFeed, setSelectedFeed] = useState<RSSFeed | undefined>();
   const [showFeedForm, setShowFeedForm] = useState(false);
+  const [loadingFeeds, setLoadingFeeds] = useState(true);
   const [fetchingRSS, setFetchingRSS] = useState(false);
+  const [sendingLatest, setSendingLatest] = useState<string | null>(null); // 存储正在发送的feed ID
 
   // 加载 AI 机器人
   const loadBots = async () => {
+    setLoadingBots(true);
     try {
       const response = await fetch('/api/ai-bots');
       if (response.ok) {
@@ -37,11 +43,14 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error('加载 AI 机器人失败:', error);
+    } finally {
+      setLoadingBots(false);
     }
   };
 
   // 加载 RSS 订阅
   const loadFeeds = async () => {
+    setLoadingFeeds(true);
     try {
       const response = await fetch('/api/rss');
       if (response.ok) {
@@ -50,49 +59,71 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error('加载 RSS 订阅失败:', error);
+    } finally {
+      setLoadingFeeds(false);
     }
   };
 
   // 删除 AI 机器人
   const deleteBot = async (id: string) => {
-    if (!confirm('确定要删除这个 AI 机器人吗？')) return;
+    toast('确定要删除这个 AI 机器人吗？', {
+      action: {
+        label: '确认删除',
+        onClick: async () => {
+          try {
+            const response = await fetch(`/api/ai-bots?id=${id}`, {
+              method: 'DELETE',
+            });
 
-    try {
-      const response = await fetch(`/api/ai-bots?id=${id}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        loadBots();
-      } else {
-        const error = await response.json();
-        alert(error.error || '删除失败');
-      }
-    } catch (error) {
-      console.error('删除失败:', error);
-      alert('删除失败');
-    }
+            if (response.ok) {
+              toast.success('删除成功');
+              loadBots();
+            } else {
+              const error = await response.json();
+              toast.error(error.error || '删除失败');
+            }
+          } catch (error) {
+            console.error('删除失败:', error);
+            toast.error('删除失败');
+          }
+        },
+      },
+      cancel: {
+        label: '取消',
+        onClick: () => {},
+      },
+    });
   };
 
   // 删除 RSS 订阅
   const deleteFeed = async (id: string) => {
-    if (!confirm('确定要删除这个 RSS 订阅吗？')) return;
+    toast('确定要删除这个 RSS 订阅吗？', {
+      action: {
+        label: '确认删除',
+        onClick: async () => {
+          try {
+            const response = await fetch(`/api/rss?id=${id}`, {
+              method: 'DELETE',
+            });
 
-    try {
-      const response = await fetch(`/api/rss?id=${id}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        loadFeeds();
-      } else {
-        const error = await response.json();
-        alert(error.error || '删除失败');
-      }
-    } catch (error) {
-      console.error('删除失败:', error);
-      alert('删除失败');
-    }
+            if (response.ok) {
+              toast.success('删除成功');
+              loadFeeds();
+            } else {
+              const error = await response.json();
+              toast.error(error.error || '删除失败');
+            }
+          } catch (error) {
+            console.error('删除失败:', error);
+            toast.error('删除失败');
+          }
+        },
+      },
+      cancel: {
+        label: '取消',
+        onClick: () => {},
+      },
+    });
   };
 
   // 手动获取 RSS
@@ -105,17 +136,58 @@ export default function SettingsPage() {
 
       if (response.ok) {
         const data = await response.json();
-        alert(data.message);
+        toast.success(data.message);
         loadFeeds();
       } else {
         const error = await response.json();
-        alert(error.error || '获取失败');
+        toast.error(error.error || '获取失败');
       }
     } catch (error) {
       console.error('获取失败:', error);
-      alert('获取失败');
+      toast.error('获取失败');
     } finally {
       setFetchingRSS(false);
+    }
+  };
+
+  // 发送最新RSS消息到聊天
+  const sendLatestMessage = async (feedId: string) => {
+    setSendingLatest(feedId);
+    try {
+      // 1. 获取最新RSS消息
+      const latestResponse = await fetch(`/api/rss/latest?feedId=${feedId}`);
+      
+      if (!latestResponse.ok) {
+        const error = await latestResponse.json();
+        toast.error(error.error || '获取最新消息失败');
+        return;
+      }
+
+      const { content } = await latestResponse.json();
+
+      // 2. 发送消息到聊天
+      const sendResponse = await fetch('/api/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content,
+          stream: false,
+        }),
+      });
+
+      if (sendResponse.ok) {
+        toast.success('已将最新RSS消息发送到聊天');
+      } else {
+        const error = await sendResponse.json();
+        toast.error(error.error || '发送消息失败');
+      }
+    } catch (error) {
+      console.error('发送最新消息失败:', error);
+      toast.error('发送最新消息失败');
+    } finally {
+      setSendingLatest(null);
     }
   };
 
@@ -163,70 +235,111 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-4">
-              {bots.map((bot) => (
-                <Card key={bot.id}>
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <CardTitle className="flex items-center gap-2">
-                          {bot.name}
-                          {bot.is_active ? (
-                            <Badge variant="default">启用</Badge>
-                          ) : (
-                            <Badge variant="secondary">禁用</Badge>
-                          )}
-                        </CardTitle>
-                        <CardDescription className="mt-2">
-                          {bot.system_prompt.substring(0, 100)}
-                          {bot.system_prompt.length > 100 && '...'}
-                        </CardDescription>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setSelectedBot(bot);
-                            setShowBotForm(true);
-                          }}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteBot(bot.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">触发关键词：</span>
-                        {bot.trigger_keywords?.map((keyword) => (
-                          <Badge key={keyword} variant="outline" className="ml-2">
-                            {keyword}
-                          </Badge>
-                        ))}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">模型：</span>
-                        <span className="ml-2">{bot.model}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              {loadingBots ? (
+                // AI 机器人加载骨架屏
+                <>
+                  {[1, 2, 3].map((i) => (
+                    <Card key={i}>
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <Skeleton className="h-6 w-32" />
+                              <Skeleton className="h-5 w-12" />
+                            </div>
+                            <Skeleton className="h-4 w-full mt-2" />
+                            <Skeleton className="h-4 w-3/4 mt-1" />
+                          </div>
+                          <div className="flex gap-2">
+                            <Skeleton className="h-9 w-9 rounded-md" />
+                            <Skeleton className="h-9 w-9 rounded-md" />
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Skeleton className="h-4 w-24" />
+                            <Skeleton className="h-5 w-16" />
+                            <Skeleton className="h-5 w-16" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Skeleton className="h-4 w-16" />
+                            <Skeleton className="h-4 w-32" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </>
+              ) : (
+                <>
+                  {bots.map((bot) => (
+                    <Card key={bot.id}>
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <CardTitle className="flex items-center gap-2">
+                              {bot.name}
+                              {bot.is_active ? (
+                                <Badge variant="default">启用</Badge>
+                              ) : (
+                                <Badge variant="secondary">禁用</Badge>
+                              )}
+                            </CardTitle>
+                            <CardDescription className="mt-2">
+                              {bot.system_prompt.substring(0, 100)}
+                              {bot.system_prompt.length > 100 && '...'}
+                            </CardDescription>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setSelectedBot(bot);
+                                setShowBotForm(true);
+                              }}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => deleteBot(bot.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2 text-sm">
+                          <div>
+                            <span className="text-muted-foreground">触发关键词：</span>
+                            {bot.trigger_keywords?.map((keyword) => (
+                              <Badge key={keyword} variant="outline" className="ml-2">
+                                {keyword}
+                              </Badge>
+                            ))}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">模型：</span>
+                            <span className="ml-2">{bot.model}</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
 
-              {bots.length === 0 && (
-                <Card>
-                  <CardContent className="py-8 text-center text-muted-foreground">
-                    暂无 AI 机器人，点击上方按钮添加
-                  </CardContent>
-                </Card>
+                  {bots.length === 0 && (
+                    <Card>
+                      <CardContent className="py-8 text-center text-muted-foreground">
+                        暂无 AI 机器人，点击上方按钮添加
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
               )}
             </div>
           </TabsContent>
@@ -259,60 +372,101 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-4">
-              {feeds.map((feed) => (
-                <Card key={feed.id}>
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <CardTitle className="flex items-center gap-2">
-                          {feed.name}
-                          {feed.is_active ? (
-                            <Badge variant="default">启用</Badge>
-                          ) : (
-                            <Badge variant="secondary">禁用</Badge>
-                          )}
-                        </CardTitle>
-                        <CardDescription className="mt-2 break-all">
-                          {feed.url}
-                        </CardDescription>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setSelectedFeed(feed);
-                            setShowFeedForm(true);
-                          }}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteFeed(feed.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  {feed.last_fetched_at && (
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">
-                        最后获取：{new Date(feed.last_fetched_at).toLocaleString('zh-CN')}
-                      </p>
-                    </CardContent>
-                  )}
-                </Card>
-              ))}
+              {loadingFeeds ? (
+                // RSS 订阅加载骨架屏
+                <>
+                  {[1, 2, 3].map((i) => (
+                    <Card key={i}>
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <Skeleton className="h-6 w-40" />
+                              <Skeleton className="h-5 w-12" />
+                            </div>
+                            <Skeleton className="h-4 w-full mt-2" />
+                            <Skeleton className="h-4 w-2/3 mt-1" />
+                          </div>
+                          <div className="flex gap-2">
+                            <Skeleton className="h-9 w-9 rounded-md" />
+                            <Skeleton className="h-9 w-9 rounded-md" />
+                            <Skeleton className="h-9 w-9 rounded-md" />
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <Skeleton className="h-4 w-48" />
+                      </CardContent>
+                    </Card>
+                  ))}
+                </>
+              ) : (
+                <>
+                  {feeds.map((feed) => (
+                    <Card key={feed.id}>
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <CardTitle className="flex items-center gap-2">
+                              {feed.name}
+                              {feed.is_active ? (
+                                <Badge variant="default">启用</Badge>
+                              ) : (
+                                <Badge variant="secondary">禁用</Badge>
+                              )}
+                            </CardTitle>
+                            <CardDescription className="mt-2 break-all">
+                              {feed.url}
+                            </CardDescription>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => sendLatestMessage(feed.id)}
+                              disabled={sendingLatest === feed.id}
+                              title="发送最新消息到聊天"
+                            >
+                              <Send className={`h-4 w-4 ${sendingLatest === feed.id ? 'animate-pulse' : ''}`} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setSelectedFeed(feed);
+                                setShowFeedForm(true);
+                              }}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => deleteFeed(feed.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      {feed.last_fetched_at && (
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground">
+                            最后获取：{new Date(feed.last_fetched_at).toLocaleString('zh-CN')}
+                          </p>
+                        </CardContent>
+                      )}
+                    </Card>
+                  ))}
 
-              {feeds.length === 0 && (
-                <Card>
-                  <CardContent className="py-8 text-center text-muted-foreground">
-                    暂无 RSS 订阅，点击上方按钮添加
-                  </CardContent>
-                </Card>
+                  {feeds.length === 0 && (
+                    <Card>
+                      <CardContent className="py-8 text-center text-muted-foreground">
+                        暂无 RSS 订阅，点击上方按钮添加
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
               )}
             </div>
           </TabsContent>

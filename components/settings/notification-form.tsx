@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { NotificationRule } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,16 +59,16 @@ export function NotificationForm({ onSuccess }: NotificationFormProps) {
       });
 
       if (response.ok) {
-        alert('保存成功');
+        toast.success('保存成功');
         loadRule();
         onSuccess?.();
       } else {
         const error = await response.json();
-        alert(error.error || '保存失败');
+        toast.error(error.error || '保存失败');
       }
     } catch (error) {
       console.error('保存失败:', error);
-      alert('保存失败');
+      toast.error('保存失败');
     } finally {
       setLoading(false);
     }
@@ -75,7 +76,7 @@ export function NotificationForm({ onSuccess }: NotificationFormProps) {
 
   const handleTest = async () => {
     if (!barkUrl) {
-      alert('请先输入 Bark URL');
+      toast.error('请先输入 Bark URL');
       return;
     }
 
@@ -90,14 +91,14 @@ export function NotificationForm({ onSuccess }: NotificationFormProps) {
       });
 
       if (response.ok) {
-        alert('测试通知已发送，请检查您的设备');
+        toast.success('测试通知已发送，请检查您的设备');
       } else {
         const error = await response.json();
-        alert(error.error || '发送失败');
+        toast.error(error.error || '发送失败');
       }
     } catch (error) {
       console.error('发送失败:', error);
-      alert('发送失败');
+      toast.error('发送失败');
     } finally {
       setTesting(false);
     }

@@ -1,14 +1,5 @@
 import { sql } from '@vercel/postgres';
 
+// 导出 sql 模板标签函数
+// @vercel/postgres 的 sql 模板标签返回包含 rows 属性的对象
 export { sql };
-
-// 数据库查询辅助函数
-export async function query<T>(queryString: string, params?: any[]): Promise<T[]> {
-  const result = await sql.query(queryString, params);
-  return result.rows as T[];
-}
-
-export async function queryOne<T>(queryString: string, params?: any[]): Promise<T | null> {
-  const result = await sql.query(queryString, params);
-  return result.rows[0] as T || null;
-}

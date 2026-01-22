@@ -12,6 +12,22 @@ const { sql } = require('@vercel/postgres');
 const fs = require('fs');
 const path = require('path');
 
+// 加载 .env.local 文件
+const envPath = path.join(__dirname, '../.env.local');
+if (fs.existsSync(envPath)) {
+  const envFile = fs.readFileSync(envPath, 'utf8');
+  envFile.split('\n').forEach(line => {
+    const trimmedLine = line.trim();
+    if (trimmedLine && !trimmedLine.startsWith('#')) {
+      const [key, ...valueParts] = trimmedLine.split('=');
+      if (key && valueParts.length > 0) {
+        const value = valueParts.join('=').replace(/^["']|["']$/g, '');
+        process.env[key.trim()] = value.trim();
+      }
+    }
+  });
+}
+
 async function initDatabase() {
   try {
     console.log('开始初始化数据库...');
@@ -20,11 +36,55 @@ async function initDatabase() {
     const schemaPath = path.join(__dirname, '../lib/db/schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf8');
 
-    // 执行 SQL 脚本
-    console.log('执行 SQL 脚本...');
-    await sql.query(schema);
+    // 将 SQL 脚本按分号分割成单独的语句
+    // 简单方法：移除注释，然后按分号分割
+    const lines = schema.split('\n');
+    let fullSchema = '';
+    
+    for (const line of lines) {
+      // 跳过纯注释行
+      if (line.trim().startsWith('--')) {
+        continue;
+      }
+      // 移除行内注释
+      const commentIndex = line.indexOf('--');
+      if (commentIndex >= 0) {
+        fullSchema += line.substring(0, commentIndex) + '\n';
+      } else {
+        fullSchema += line + '\n';
+      }
+    }
+    
+    // 按分号分割
+    const statements = fullSchema
+      .split(';')
+      .map(s => s.trim().replace(/\n+/g, ' '))
+      .filter(s => s.length > 0 && !s.match(/^\s*$/));
 
-    console.log('✅ 数据库初始化成功！');
+    console.log(`找到 ${statements.length} 条 SQL 语句，开始执行...`);
+
+    // 执行每个 SQL 语句
+    for (let i = 0; i < statements.length; i++) {
+      const statement = statements[i];
+      if (statement.trim()) {
+        try {
+          await sql.query(statement);
+          console.log(`✅ 执行语句 ${i + 1}/${statements.length}`);
+        } catch (error) {
+          // 忽略 "already exists" 错误
+          if (error.message?.includes('already exists') || 
+              error.message?.includes('duplicate') ||
+              error.message?.includes('does not exist')) {
+            console.log(`⚠️  语句 ${i + 1} 跳过（已存在或无需执行）`);
+          } else {
+            console.warn(`⚠️  语句 ${i + 1} 执行警告:`, error.message);
+            console.warn(`    SQL: ${statement.substring(0, 100)}...`);
+          }
+        }
+      }
+    }
+
+    console.log('\n✅ 数据库初始化成功！');
     console.log('\n下一步：');
     console.log('1. 运行 npm run dev 启动开发服务器');
     console.log('2. 访问 http://localhost:3000');

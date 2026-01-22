@@ -6,8 +6,12 @@
 
 1. GitHub 账号
 2. Vercel 账号
-3. OpenAI API Key
+3. OpenAI API Key（在配置 AI 机器人时需要）
 4. Bark 推送 URL（可选）
+
+## 版本升级
+
+如果您从旧版本升级，请先查看 [MIGRATION.md](./MIGRATION.md) 了解数据库迁移步骤。
 
 ## 部署步骤
 
@@ -90,22 +94,13 @@ POSTGRES_URL=
 POSTGRES_PRISMA_URL=
 POSTGRES_URL_NON_POOLING=
 
-# OpenAI
-OPENAI_API_KEY=sk-xxx
-
 # Cron Secret（用于保护定时任务端点）
 CRON_SECRET=随机生成的密钥
 ```
 
-#### 可选的环境变量
-
-```
-# Bark（也可以在界面中配置）
-BARK_BASE_URL=https://api.day.app/your_key
-```
-
 **提示：** 
 - 数据库环境变量会在您将 Postgres 数据库关联到项目时自动添加
+- OpenAI API Key 在配置每个 AI 机器人时单独配置，无需环境变量
 - `CRON_SECRET` 可以使用以下命令生成：
   ```bash
   openssl rand -base64 32
@@ -184,13 +179,14 @@ git push
 ### 添加 AI 机器人
 
 1. 进入设置页面
-2. 切换到 "AI 机器人" 标签页
-3. 点击 "添加机器人"
-4. 填写配置：
+2. 点击 "添加机器人"
+3. 填写配置：
    - **名称**：机器人的显示名称
    - **系统提示词**：定义机器人的角色和行为
    - **触发关键词**：用逗号分隔，消息包含这些词时会触发
-   - **模型**：选择 OpenAI 模型
+   - **API Key**：该机器人使用的 OpenAI API Key（格式：`sk-...`）
+   - **Base URL**：可选，如需使用代理或第三方服务可修改
+   - **模型**：手动输入模型名称
    - **温度**：0-2，控制回复的随机性
 
 示例配置：
@@ -199,6 +195,8 @@ git push
 名称：技术助手
 系统提示词：你是一个专业的技术助手，擅长解答编程、架构和技术相关问题。回答要简洁准确。
 触发关键词：技术,编程,代码,bug,报错
+API Key：sk-xxxxxxxxxxxxxxxxxxxxxxxx
+Base URL：https://api.openai.com/v1
 模型：gpt-3.5-turbo
 温度：0.7
 ```
@@ -239,10 +237,11 @@ git push
 ### Q: AI 不回复消息
 
 **A:**
-1. 检查 OPENAI_API_KEY 是否正确
+1. 检查机器人的 API Key 是否正确配置（应以 `sk-` 开头）
 2. 确认 AI 机器人已启用
 3. 检查消息是否包含触发关键词
-4. 查看 API 调用日志
+4. 检查 Base URL 是否正确（如使用了自定义 URL）
+5. 查看 API 调用日志
 
 ### Q: RSS 没有自动更新
 

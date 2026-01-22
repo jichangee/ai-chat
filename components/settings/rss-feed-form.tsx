@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { RSSFeed } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,11 +24,30 @@ interface RSSFeedFormProps {
 
 export function RSSFeedForm({ feed, open, onClose, onSuccess }: RSSFeedFormProps) {
   const [formData, setFormData] = useState({
-    name: feed?.name || '',
-    url: feed?.url || '',
-    is_active: feed?.is_active ?? true,
+    name: '',
+    url: '',
+    is_active: true,
   });
   const [loading, setLoading] = useState(false);
+
+  // 当弹窗打开或 feed 数据变化时，更新表单数据
+  useEffect(() => {
+    if (open) {
+      if (feed) {
+        setFormData({
+          name: feed.name || '',
+          url: feed.url || '',
+          is_active: feed.is_active ?? true,
+        });
+      } else {
+        setFormData({
+          name: '',
+          url: '',
+          is_active: true,
+        });
+      }
+    }
+  }, [feed, open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,15 +67,16 @@ export function RSSFeedForm({ feed, open, onClose, onSuccess }: RSSFeedFormProps
       });
 
       if (response.ok) {
+        toast.success(feed ? '更新成功' : '添加成功');
         onSuccess();
         onClose();
       } else {
         const error = await response.json();
-        alert(error.error || '操作失败');
+        toast.error(error.error || '操作失败');
       }
     } catch (error) {
       console.error('操作失败:', error);
-      alert('操作失败');
+      toast.error('操作失败');
     } finally {
       setLoading(false);
     }

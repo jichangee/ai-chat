@@ -1,18 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { AIBot } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -31,15 +25,103 @@ interface AIBotFormProps {
 
 export function AIBotForm({ bot, open, onClose, onSuccess }: AIBotFormProps) {
   const [formData, setFormData] = useState({
-    name: bot?.name || '',
-    avatar: bot?.avatar || '',
-    system_prompt: bot?.system_prompt || '',
-    trigger_keywords: bot?.trigger_keywords?.join(', ') || '',
-    model: bot?.model || 'gpt-3.5-turbo',
-    temperature: bot?.temperature?.toString() || '0.7',
-    is_active: bot?.is_active ?? true,
+    name: '',
+    avatar: '',
+    system_prompt: '',
+    trigger_keywords: '',
+    model: 'gpt-3.5-turbo',
+    temperature: '0.7',
+    api_key: '',
+    base_url: 'https://api.openai.com/v1',
+    is_active: true,
   });
   const [loading, setLoading] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // 当弹窗打开或 bot 数据变化时，更新表单数据
+  useEffect(() => {
+    if (open) {
+      if (bot) {
+        // 编辑模式：使用 bot 的数据
+        setFormData({
+          name: bot.name || '',
+          avatar: bot.avatar || '',
+          system_prompt: bot.system_prompt || '',
+          trigger_keywords: bot.trigger_keywords?.join(', ') || '',
+          model: bot.model || 'gpt-3.5-turbo',
+          temperature: bot.temperature?.toString() || '0.7',
+          api_key: bot.api_key || '',
+          base_url: bot.base_url || 'https://api.openai.com/v1',
+          is_active: bot.is_active ?? true,
+        });
+      } else {
+        // 添加模式：重置为默认值
+        setFormData({
+          name: '',
+          avatar: '',
+          system_prompt: '',
+          trigger_keywords: '',
+          model: 'gpt-3.5-turbo',
+          temperature: '0.7',
+          api_key: '',
+          base_url: 'https://api.openai.com/v1',
+          is_active: true,
+        });
+      }
+      // 清除测试结果
+      setTestResult(null);
+    }
+  }, [bot, open]);
+
+  const handleTest = async () => {
+    if (!formData.api_key || !formData.base_url) {
+      setTestResult({
+        success: false,
+        message: '请先填写 API Key 和 Base URL',
+      });
+      return;
+    }
+
+    setTesting(true);
+    setTestResult(null);
+
+    try {
+      const response = await fetch('/api/ai-bots/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          api_key: formData.api_key,
+          base_url: formData.base_url,
+          model: formData.model,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setTestResult({
+          success: true,
+          message: result.message || '验证成功',
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: result.error || '验证失败',
+        });
+      }
+    } catch (error) {
+      console.error('测试失败:', error);
+      setTestResult({
+        success: false,
+        message: '测试失败，请检查网络连接',
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,15 +150,16 @@ export function AIBotForm({ bot, open, onClose, onSuccess }: AIBotFormProps) {
       });
 
       if (response.ok) {
+        toast.success(bot ? '更新成功' : '添加成功');
         onSuccess();
         onClose();
       } else {
         const error = await response.json();
-        alert(error.error || '操作失败');
+        toast.error(error.error || '操作失败');
       }
     } catch (error) {
       console.error('操作失败:', error);
-      alert('操作失败');
+      toast.error('操作失败');
     } finally {
       setLoading(false);
     }
@@ -133,7 +216,7 @@ export function AIBotForm({ bot, open, onClose, onSuccess }: AIBotFormProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="trigger_keywords">触发关键词（逗号分隔）*</Label>
+            <Label htmlFor="trigger_keywords">触发关键词（逗号分隔，可选）</Label>
             <Input
               id="trigger_keywords"
               value={formData.trigger_keywords}
@@ -141,31 +224,83 @@ export function AIBotForm({ bot, open, onClose, onSuccess }: AIBotFormProps) {
                 setFormData({ ...formData, trigger_keywords: e.target.value })
               }
               placeholder="例如：技术,编程,代码"
+            />
+            <p className="text-xs text-muted-foreground">
+              当消息包含这些关键词时，机器人会自动回复。留空则只能通过@机器人名称触发
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="api_key">API Key *</Label>
+            <Input
+              id="api_key"
+              type="password"
+              value={formData.api_key}
+              onChange={(e) => {
+                setFormData({ ...formData, api_key: e.target.value });
+                setTestResult(null); // 清除测试结果
+              }}
+              placeholder="sk-..."
               required
             />
             <p className="text-xs text-muted-foreground">
-              当消息包含这些关键词时，机器人会自动回复
+              每个机器人使用独立的 API Key
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="base_url">Base URL（可选）</Label>
+            <div className="flex gap-2">
+              <Input
+                id="base_url"
+                value={formData.base_url}
+                onChange={(e) => {
+                  setFormData({ ...formData, base_url: e.target.value });
+                  setTestResult(null); // 清除测试结果
+                }}
+                placeholder="https://api.openai.com/v1"
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTest}
+                disabled={testing || !formData.api_key || !formData.base_url}
+              >
+                {testing ? '测试中...' : '测试'}
+              </Button>
+            </div>
+            {testResult && (
+              <p
+                className={`text-xs ${
+                  testResult.success
+                    ? 'text-green-600 dark:text-green-400'
+                    : 'text-red-600 dark:text-red-400'
+                }`}
+              >
+                {testResult.message}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              如需使用代理或第三方服务，请修改此 URL
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="model">模型</Label>
-              <Select
+              <Label htmlFor="model">模型 *</Label>
+              <Input
+                id="model"
                 value={formData.model}
-                onValueChange={(value) =>
-                  setFormData({ ...formData, model: value })
+                onChange={(e) =>
+                  setFormData({ ...formData, model: e.target.value })
                 }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="gpt-4">GPT-4</SelectItem>
-                  <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
-                  <SelectItem value="gpt-3.5-turbo">GPT-3.5 Turbo</SelectItem>
-                </SelectContent>
-              </Select>
+                placeholder="例如：gpt-3.5-turbo"
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                请手动输入模型名称
+              </p>
             </div>
 
             <div className="space-y-2">

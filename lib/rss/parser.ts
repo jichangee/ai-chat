@@ -18,6 +18,7 @@ export async function parseRSSFeed(url: string): Promise<RSSItem[]> {
       pubDate: item.pubDate || item.isoDate || new Date().toISOString(),
       content: item.content || item.contentSnippet || '',
       contentSnippet: item.contentSnippet || '',
+      description: item.description || item.contentSnippet || '',
     }));
   } catch (error) {
     console.error('RSS 解析错误:', error);
@@ -51,8 +52,20 @@ export function filterNewItems(items: RSSItem[], lastItemDate: string | null): R
  * @returns 格式化的消息内容
  */
 export function formatRSSItemAsMessage(item: RSSItem, feedName: string): string {
-  const snippet = item.contentSnippet || item.content;
-  const truncated = snippet.length > 200 ? snippet.substring(0, 200) + '...' : snippet;
+  // 优先使用 description，然后是 contentSnippet，最后是 content
+  let description = item.description || item.contentSnippet || item.content || '';
   
-  return `📰 ${item.title}\n\n${truncated}\n\n🔗 ${item.link}`;
+  // 简单的HTML标签清理（如果description包含HTML）
+  description = description
+    .replace(/<[^>]*>/g, '') // 移除HTML标签
+    .replace(/&nbsp;/g, ' ') // 替换HTML空格
+    .replace(/&amp;/g, '&')  // 替换HTML实体
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+  
+  
+  return `📰 ${item.title}\n\n${description}\n\n🔗 ${item.link}`;
 }

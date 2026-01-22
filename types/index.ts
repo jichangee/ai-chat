@@ -9,6 +9,7 @@ export interface Message {
   sender_name: string;
   created_at: string;
   metadata?: Record<string, any>;
+  quoted_message_id?: string | null; // 引用的消息ID
 }
 
 // AI 机器人类型
@@ -20,6 +21,8 @@ export interface AIBot {
   trigger_keywords: string[];
   model: string;
   temperature: number;
+  api_key: string;
+  base_url: string;
   is_active: boolean;
   created_at: string;
 }
@@ -50,4 +53,5 @@ export interface RSSItem {
   pubDate: string;
   content: string;
   contentSnippet?: string;
+  description?: string;
 }

@@ -3,7 +3,9 @@ import { sql } from '@/lib/db/client';
 import { parseRSSFeed, filterNewItems, formatRSSItemAsMessage } from '@/lib/rss/parser';
 import { sendBarkNotification } from '@/lib/notification/bark';
 import { matchKeywords } from '@/lib/notification/matcher';
-import { RSSFeed, NotificationRule } from '@/types';
+import { checkAITriggers } from '@/lib/ai/trigger';
+import { getAIResponse } from '@/lib/ai/chat';
+import { RSSFeed, NotificationRule, AIBot, Message } from '@/types';
 
 // GET: Vercel Cron 定时任务
 export async function GET(request: NextRequest) {
@@ -38,6 +40,12 @@ export async function GET(request: NextRequest) {
     let totalNewItems = 0;
     const results = [];
 
+    // 获取所有活跃的 AI 机器人（在循环外获取一次）
+    const botsResult = await sql`
+      SELECT * FROM ai_bots WHERE is_active = true
+    `;
+    const bots: AIBot[] = botsResult.rows as any[];
+
     for (const feed of feeds) {
       try {
         // 解析 RSS 源
@@ -47,6 +55,7 @@ export async function GET(request: NextRequest) {
         const newItems = filterNewItems(items, feed.last_item_date);
         
         if (newItems.length > 0) {
+
           // 保存新消息到数据库
           for (const item of newItems) {
             const messageContent = formatRSSItemAsMessage(item, feed.name);
@@ -73,9 +82,13 @@ export async function GET(request: NextRequest) {
               RETURNING *
             `;
 
-            // 检查是否需要发送通知
             const message = messageResult.rows[0];
+
+            // 检查是否需要发送通知
             await checkAndSendNotification(message, feed.name);
+
+            // 检查是否触发 AI 机器人
+            await processAIBotTriggers(message, bots);
           }
 
           // 更新订阅源的最后获取时间和最新条目时间
@@ -157,5 +170,75 @@ async function checkAndSendNotification(message: any, feedName: string) {
     }
   } catch (error) {
     console.error('检查通知失败:', error);
+  }
+}
+
+// 处理 AI 机器人触发
+async function processAIBotTriggers(message: any, bots: AIBot[]) {
+  try {
+    // 检查是否触发任何 AI 机器人
+    const triggeredBots = checkAITriggers(message.content, bots);
+    
+    if (triggeredBots.length === 0) {
+      return;
+    }
+
+    console.log(`RSS 消息触发了 ${triggeredBots.length} 个 AI 机器人:`, triggeredBots.map(b => b.name));
+
+    // 获取最近的上下文消息（用于 AI 对话）
+    const contextResult = await sql`
+      SELECT * FROM messages
+      WHERE sender_type IN ('user', 'ai', 'rss')
+      ORDER BY created_at DESC
+      LIMIT 5
+    `;
+    const context: Message[] = (contextResult.rows as any[]).reverse();
+
+    // 为每个被触发的机器人生成回复
+    for (const bot of triggeredBots) {
+      try {
+        console.log(`机器人 ${bot.name} 正在处理 RSS 消息...`);
+        
+        const aiResponse = await getAIResponse(bot, message.content, context);
+        
+        const aiMetadata = { 
+          model: bot.model, 
+          bot_id: bot.id,
+          triggered_by: 'rss',
+          rss_message_id: message.id
+        };
+
+        await sql`
+          INSERT INTO messages (
+            content, 
+            sender_type, 
+            sender_id, 
+            sender_name, 
+            metadata,
+            quoted_message_id
+          )
+          VALUES (
+            ${aiResponse}, 
+            'ai', 
+            ${bot.id}, 
+            ${bot.name},
+            ${JSON.stringify(aiMetadata)},
+            ${message.id}
+          )
+        `;
+        
+        console.log(`机器人 ${bot.name} 成功回复 RSS 消息`);
+      } catch (error) {
+        console.error(`机器人 ${bot.name} 处理 RSS 消息失败:`, {
+          botId: bot.id,
+          botName: bot.name,
+          model: bot.model,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        // 继续处理其他机器人，不抛出异常
+      }
+    }
+  } catch (error) {
+    console.error('处理 AI 机器人触发失败:', error);
   }
 }

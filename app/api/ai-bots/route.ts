@@ -33,12 +33,14 @@ export async function POST(request: NextRequest) {
       trigger_keywords = [],
       model = 'gpt-3.5-turbo',
       temperature = 0.7,
+      api_key,
+      base_url = 'https://api.openai.com/v1',
       is_active = true,
     } = body;
 
-    if (!name || !system_prompt) {
+    if (!name || !system_prompt || !api_key) {
       return NextResponse.json(
-        { error: '名称和系统提示词不能为空' },
+        { error: '名称、系统提示词和 API Key 不能为空' },
         { status: 400 }
       );
     }
@@ -51,6 +53,8 @@ export async function POST(request: NextRequest) {
         trigger_keywords, 
         model, 
         temperature, 
+        api_key,
+        base_url,
         is_active
       )
       VALUES (
@@ -60,6 +64,8 @@ export async function POST(request: NextRequest) {
         ${trigger_keywords}, 
         ${model}, 
         ${temperature}, 
+        ${api_key},
+        ${base_url},
         ${is_active}
       )
       RETURNING *
@@ -89,6 +95,8 @@ export async function PUT(request: NextRequest) {
       trigger_keywords,
       model,
       temperature,
+      api_key,
+      base_url,
       is_active,
     } = body;
 
@@ -99,37 +107,44 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // 构建更新字段
+    // 构建更新字段和值数组
     const updates: string[] = [];
     const values: any[] = [];
-    let paramCount = 1;
 
     if (name !== undefined) {
-      updates.push(`name = $${paramCount++}`);
+      updates.push('name');
       values.push(name);
     }
     if (avatar !== undefined) {
-      updates.push(`avatar = $${paramCount++}`);
+      updates.push('avatar');
       values.push(avatar);
     }
     if (system_prompt !== undefined) {
-      updates.push(`system_prompt = $${paramCount++}`);
+      updates.push('system_prompt');
       values.push(system_prompt);
     }
     if (trigger_keywords !== undefined) {
-      updates.push(`trigger_keywords = $${paramCount++}`);
+      updates.push('trigger_keywords');
       values.push(trigger_keywords);
     }
     if (model !== undefined) {
-      updates.push(`model = $${paramCount++}`);
+      updates.push('model');
       values.push(model);
     }
     if (temperature !== undefined) {
-      updates.push(`temperature = $${paramCount++}`);
+      updates.push('temperature');
       values.push(temperature);
     }
+    if (api_key !== undefined) {
+      updates.push('api_key');
+      values.push(api_key);
+    }
+    if (base_url !== undefined) {
+      updates.push('base_url');
+      values.push(base_url);
+    }
     if (is_active !== undefined) {
-      updates.push(`is_active = $${paramCount++}`);
+      updates.push('is_active');
       values.push(is_active);
     }
 
@@ -140,15 +155,13 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // 构建 SET 子句，使用参数化查询
+    const setClause = updates.map((field, index) => `${field} = $${index + 1}`).join(', ');
+    const query = `UPDATE ai_bots SET ${setClause} WHERE id = $${updates.length + 1} RETURNING *`;
     values.push(id);
-    const query = `
-      UPDATE ai_bots
-      SET ${updates.join(', ')}
-      WHERE id = $${paramCount}
-      RETURNING *
-    `;
 
-    const result = await sql.query(query, values);
+    // 使用 @vercel/postgres 的 query 方法
+    const result = await (sql as any).query(query, values);
 
     if (result.rows.length === 0) {
       return NextResponse.json(
