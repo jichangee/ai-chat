@@ -50,8 +50,18 @@ export function checkAITriggers(message: string, bots: AIBot[]): AIBot[] {
       return false;
     }
     
+    // 过滤掉空字符串和只包含空白的关键词
+    const validKeywords = bot.trigger_keywords
+      .map(k => k.trim())
+      .filter(k => k.length > 0);
+    
+    // 如果没有有效关键词，则不触发
+    if (validKeywords.length === 0) {
+      return false;
+    }
+    
     // 检查消息是否包含任何触发关键词
-    return bot.trigger_keywords.some(keyword => 
+    return validKeywords.some(keyword => 
       message.toLowerCase().includes(keyword.toLowerCase())
     );
   });
