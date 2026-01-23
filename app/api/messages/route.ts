@@ -160,16 +160,45 @@ export async function POST(request: NextRequest) {
             
             // 2. 为每个机器人创建处理Promise
             const botPromises = triggeredBots.map(async (bot) => {
-              // 为每个机器人分配唯一的临时消息ID
-              const tempMessageId = `temp-${bot.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+              let messageId: string | null = null;
               
               try {
+                // 创建持久化占位消息，保证未进入页面也能看到“回复中”
+                const loadingMetadata = { 
+                  model: bot.model, 
+                  bot_id: bot.id, 
+                  loading: true 
+                };
+                
+                const placeholderResult = await sql`
+                  INSERT INTO messages (
+                    content, 
+                    sender_type, 
+                    sender_id, 
+                    sender_name, 
+                    metadata,
+                    quoted_message_id
+                  )
+                  VALUES (
+                    '正在思考...', 
+                    'ai', 
+                    ${bot.id}, 
+                    ${bot.name},
+                    ${JSON.stringify(loadingMetadata)},
+                    ${quoted_message_id || null}
+                  )
+                  RETURNING *
+                `;
+                
+                const placeholderMessage: Message = placeholderResult.rows[0] as any;
+                messageId = placeholderMessage.id;
+                
                 // 发送机器人开始响应事件
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                   type: 'ai_start', 
                   botId: bot.id,
                   botName: bot.name,
-                  messageId: tempMessageId
+                  messageId
                 })}\n\n`));
 
                 // 获取流式响应
@@ -195,32 +224,28 @@ export async function POST(request: NextRequest) {
                     })}\n\n`));
                   }
 
-                  // 保存完整的AI消息到数据库
+                  // 更新占位消息为最终内容
                   const aiMetadata = { 
                     model: bot.model, 
-                    bot_id: bot.id
+                    bot_id: bot.id,
+                    loading: false
                   };
 
+                  if (!messageId) {
+                    throw new Error('缺少占位消息ID，无法更新AI回复');
+                  }
+
                   const aiMessageResult = await sql`
-                    INSERT INTO messages (
-                      content, 
-                      sender_type, 
-                      sender_id, 
-                      sender_name, 
-                      metadata,
-                      quoted_message_id
-                    )
-                    VALUES (
-                      ${fullContent}, 
-                      'ai', 
-                      ${bot.id}, 
-                      ${bot.name},
-                      ${JSON.stringify(aiMetadata)},
-                      ${quoted_message_id || null}
-                    )
+                    UPDATE messages
+                    SET content = ${fullContent}, metadata = ${JSON.stringify(aiMetadata)}
+                    WHERE id = ${messageId}
                     RETURNING *
                   `;
                   
+                  if (aiMessageResult.rows.length === 0) {
+                    throw new Error('更新AI回复失败：占位消息不存在');
+                  }
+
                   const aiMessage: Message = aiMessageResult.rows[0] as any;
 
                   // 发送完成事件
@@ -256,11 +281,26 @@ export async function POST(request: NextRequest) {
                     ? streamError.message 
                     : 'AI 回复失败';
                   
+                  if (messageId) {
+                    const errorMetadata = { 
+                      model: bot.model, 
+                      bot_id: bot.id,
+                      loading: false,
+                      error: true
+                    };
+                    
+                    await sql`
+                      UPDATE messages
+                      SET content = ${`❌ ${bot.name} 错误: ${errorMessage}`}, metadata = ${JSON.stringify(errorMetadata)}
+                      WHERE id = ${messageId}
+                    `;
+                  }
+                  
                   // 发送错误事件
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                     type: 'error', 
                     error: errorMessage,
-                    messageId: tempMessageId,
+                    messageId,
                     botId: bot.id
                   })}\n\n`));
                   
@@ -289,11 +329,26 @@ export async function POST(request: NextRequest) {
                   ? error.message 
                   : '发送消息失败';
                 
+                if (messageId) {
+                  const errorMetadata = { 
+                    model: bot.model, 
+                    bot_id: bot.id,
+                    loading: false,
+                    error: true
+                  };
+                  
+                  await sql`
+                    UPDATE messages
+                    SET content = ${`❌ ${bot.name} 错误: ${errorMessage}`}, metadata = ${JSON.stringify(errorMetadata)}
+                    WHERE id = ${messageId}
+                  `;
+                }
+                
                 // 发送错误事件
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                   type: 'error', 
                   error: errorMessage,
-                  messageId: tempMessageId,
+                  messageId,
                   botId: bot.id
                 })}\n\n`));
                 

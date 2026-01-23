@@ -455,6 +455,22 @@ export default function ChatPage() {
     loadBots();
   }, []);
 
+  // 当存在“回复中”的消息时，轮询刷新最新消息
+  useEffect(() => {
+    const hasLoadingMessages = messages.some(message => message.metadata?.loading);
+    if (!hasLoadingMessages) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      loadMessages();
+    }, 4000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [messages]);
+
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
