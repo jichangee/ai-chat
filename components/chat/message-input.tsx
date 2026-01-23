@@ -69,15 +69,30 @@ export function MessageInput({
   };
 
   const insertMention = (botName: string) => {
-    const beforeMention = content.slice(0, mentionPosition);
-    const afterMention = content.slice(mentionPosition + mentionSearch.length + 1);
-    const newContent = `${beforeMention}@${botName} ${afterMention}`;
+    // 计算要替换的文本范围：从@位置到@+搜索文本的结束位置
+    // 这包括@符号和用户输入的搜索文本
+    const replaceStart = mentionPosition;
+    const replaceEnd = mentionPosition + 1 + mentionSearch.length; // @符号(1) + 搜索文本长度
+    
+    // 构建新内容：
+    // - @位置之前的内容保持不变
+    // - 替换@到搜索文本结束之间的内容为 @机器人名称 
+    // - 搜索文本之后的内容保持不变
+    const beforeMention = content.slice(0, replaceStart);
+    const afterMention = content.slice(replaceEnd);
+    const mentionText = `@${botName} `;
+    const newContent = `${beforeMention}${mentionText}${afterMention}`;
+    
     setContent(newContent);
     setShowMentions(false);
     
-    // 将焦点返回到文本框
+    // 将焦点返回到文本框，并设置光标位置到插入文本的末尾
     setTimeout(() => {
-      textareaRef.current?.focus();
+      if (textareaRef.current) {
+        const newCursorPosition = replaceStart + mentionText.length;
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(newCursorPosition, newCursorPosition);
+      }
     }, 0);
   };
 

@@ -17,20 +17,53 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [quotedMessage, setQuotedMessage] = useState<Message | null>(null);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  // 加载消息
-  const loadMessages = async () => {
+  // 加载消息（初始加载最新的10条）
+  const loadMessages = async (beforeId?: string) => {
     try {
-      const response = await fetch('/api/messages');
+      const url = beforeId 
+        ? `/api/messages?limit=10&beforeId=${beforeId}`
+        : '/api/messages?limit=10';
+      
+      const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
-        setMessages(data.messages);
+        if (beforeId) {
+          // 加载历史消息，插入到列表前面
+          setMessages((prev) => [...data.messages, ...prev]);
+        } else {
+          // 初始加载，替换所有消息
+          setMessages(data.messages);
+        }
+        setHasMoreHistory(data.hasMore);
       }
     } catch (error) {
       console.error('加载消息失败:', error);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
+  };
+
+  // 加载更多历史消息
+  const loadMoreHistory = async () => {
+    if (loadingMore || messages.length === 0) return;
+    
+    setLoadingMore(true);
+    const oldestMessageId = messages[0].id;
+    // 设置锚点消息ID，用于保持滚动位置
+    const anchorElement = document.querySelector(`[data-message-id="${oldestMessageId}"]`) as HTMLElement;
+    if (anchorElement) {
+      // 保存当前滚动位置
+      const container = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+      if (container) {
+        // 标记锚点消息，MessageList会使用它来保持位置
+        anchorElement.setAttribute('data-anchor', 'true');
+      }
+    }
+    await loadMessages(oldestMessageId);
   };
 
   // 加载AI机器人列表
@@ -54,13 +87,38 @@ export default function ChatPage() {
     // 实际的触发检测在后端进行，这里只做初步判断
     const triggeredBots = bots.filter(bot => {
       if (!bot.is_active) return false;
-      // 转义机器人名称中的特殊字符
-      const escapedName = bot.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const mentionPattern = new RegExp(`@${escapedName}(?:\\s|$|[，。！？、])`, 'i');
+      
+      // 检查 @all
       const mentionsAll = /@all(?:\s|$)/i.test(content);
-      return mentionsAll || mentionPattern.test(content) || 
-        (bot.trigger_keywords && bot.trigger_keywords.length > 0 && 
-         bot.trigger_keywords.some(keyword => content.toLowerCase().includes(keyword.toLowerCase())));
+      if (mentionsAll) return true;
+      
+      // 检查 @ 特定机器人
+      const botName = bot.name.trim();
+      if (botName) {
+        const escapedName = botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const mentionPattern = new RegExp(`@${escapedName}(?:\\s|$|[，。！？、])`, 'i');
+        if (mentionPattern.test(content)) return true;
+      }
+      
+      // 检查关键词触发（需要过滤空字符串）
+      // 如果没有设置触发关键词，则总是触发（与后端逻辑保持一致）
+      if (!bot.trigger_keywords || bot.trigger_keywords.length === 0) {
+        return true;
+      }
+      
+      // 过滤掉空字符串和只包含空白的关键词
+      const validKeywords = bot.trigger_keywords
+        .map(k => k.trim())
+        .filter(k => k.length > 0);
+      
+      // 如果没有有效关键词（只有空字符串），则总是触发
+      if (validKeywords.length === 0) {
+        return true;
+      }
+      
+      return validKeywords.some(keyword => 
+        content.toLowerCase().includes(keyword.toLowerCase())
+      );
     });
 
     // 创建临时用户消息ID（用于非流式响应）
@@ -76,7 +134,17 @@ export default function ChatPage() {
     };
 
     // 立即添加用户消息（优化用户体验）
-    setMessages((prev) => [...prev, tempUserMessage]);
+    setMessages((prev) => {
+      const newMessages = [...prev, tempUserMessage];
+      // 清除锚点标记，确保新消息时滚动到底部
+      setTimeout(() => {
+        const anchorElement = document.querySelector('[data-anchor="true"]');
+        if (anchorElement) {
+          anchorElement.removeAttribute('data-anchor');
+        }
+      }, 0);
+      return newMessages;
+    });
 
     try {
       const response = await fetch('/api/messages', {
@@ -342,6 +410,40 @@ export default function ChatPage() {
     setQuotedMessage(null);
   };
 
+  // 删除消息
+  const handleDeleteMessage = async (messageId: string) => {
+    // 使用 toast 的确认对话框
+    toast('确定要删除这条消息吗？', {
+      description: '删除后无法恢复',
+      action: {
+        label: '确认删除',
+        onClick: async () => {
+          try {
+            const response = await fetch(`/api/messages?id=${messageId}`, {
+              method: 'DELETE',
+            });
+
+            if (response.ok) {
+              // 从列表中移除消息
+              setMessages((prev) => prev.filter(msg => msg.id !== messageId));
+              toast.success('消息已删除');
+            } else {
+              const error = await response.json();
+              toast.error(error.error || '删除失败');
+            }
+          } catch (error) {
+            console.error('删除消息失败:', error);
+            toast.error('删除消息失败');
+          }
+        },
+      },
+      cancel: {
+        label: '取消',
+        onClick: () => {},
+      },
+    });
+  };
+
   // 刷新消息
   const handleRefresh = () => {
     setLoading(true);
@@ -402,6 +504,10 @@ export default function ChatPage() {
         <MessageList 
           messages={messages} 
           onQuote={handleQuoteMessage}
+          onDelete={handleDeleteMessage}
+          hasMoreHistory={hasMoreHistory}
+          loadingMore={loadingMore}
+          onLoadMore={loadMoreHistory}
         />
       )}
 

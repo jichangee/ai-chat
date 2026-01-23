@@ -10,20 +10,44 @@ import { Message, AIBot, NotificationRule } from '@/types';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const limit = parseInt(searchParams.get('limit') || '10');
+    const beforeId = searchParams.get('beforeId'); // 加载此ID之前的消息
 
-    const result = await sql`
-      SELECT * FROM messages
-      ORDER BY created_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
+    let result;
+    if (beforeId) {
+      // 加载指定消息之前的历史消息
+      result = await sql`
+        SELECT * FROM messages
+        WHERE created_at < (SELECT created_at FROM messages WHERE id = ${beforeId})
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `;
+    } else {
+      // 加载最新的消息
+      result = await sql`
+        SELECT * FROM messages
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `;
+    }
 
     const messages: Message[] = result.rows as any[];
     
+    // 检查是否还有更多历史消息
+    let hasMore = false;
+    if (messages.length > 0) {
+      const oldestMessage = messages[messages.length - 1];
+      const checkResult = await sql`
+        SELECT COUNT(*) as count FROM messages
+        WHERE created_at < ${oldestMessage.created_at}
+      `;
+      hasMore = parseInt(checkResult.rows[0].count) > 0;
+    }
+    
     return NextResponse.json({ 
       messages: messages.reverse(), // 反转以便最新的在底部
-      hasMore: messages.length === limit 
+      hasMore,
+      oldestMessageId: messages.length > 0 ? messages[0].id : null // 返回最旧的消息ID，用于下次加载
     });
   } catch (error) {
     console.error('获取消息失败:', error);
@@ -61,14 +85,23 @@ export async function POST(request: NextRequest) {
     const bots: AIBot[] = botsResult.rows as any[];
 
     // 调试日志：记录消息内容和机器人列表
-    console.log('收到消息:', content);
-    console.log('活跃机器人列表:', bots.map(b => ({ name: b.name, is_active: b.is_active })));
+    console.log('=== 收到用户消息 ===');
+    console.log('消息内容:', content);
+    console.log('活跃机器人数量:', bots.length);
+    console.log('活跃机器人详情:', bots.map(b => ({ 
+      name: b.name, 
+      is_active: b.is_active,
+      trigger_keywords: b.trigger_keywords,
+      keywords_count: b.trigger_keywords?.length || 0
+    })));
 
     // 检查是否触发任何 AI 机器人
     const triggeredBots = checkAITriggers(content, bots);
     
     // 调试日志：记录触发结果
-    console.log('触发的机器人:', triggeredBots.map(b => b.name));
+    console.log('=== 触发检测结果 ===');
+    console.log('触发的机器人数量:', triggeredBots.length);
+    console.log('触发的机器人列表:', triggeredBots.map(b => b.name));
 
     if (triggeredBots.length === 0) {
       // 如果没有触发任何机器人，直接返回用户消息
@@ -422,5 +455,41 @@ async function checkAndSendNotification(message: Message) {
     }
   } catch (error) {
     console.error('检查通知失败:', error);
+  }
+}
+
+// DELETE: 删除消息
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json(
+        { error: '消息 ID 不能为空' },
+        { status: 400 }
+      );
+    }
+
+    // 删除消息（quoted_message_id 有 ON DELETE SET NULL 约束，所以引用会被自动处理）
+    const result = await sql`
+      DELETE FROM messages WHERE id = ${id}
+      RETURNING *
+    `;
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        { error: '消息不存在' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('删除消息失败:', error);
+    return NextResponse.json(
+      { error: '删除消息失败' },
+      { status: 500 }
+    );
   }
 }

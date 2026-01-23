@@ -4,17 +4,18 @@ import { Message } from '@/types';
 import { cn, formatDate } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Reply } from 'lucide-react';
+import { Reply, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 interface MessageItemProps {
   message: Message;
   onQuote?: (message: Message) => void;
+  onDelete?: (messageId: string) => void;
   quotedMessage?: Message | null;
 }
 
-export function MessageItem({ message, onQuote, quotedMessage }: MessageItemProps) {
+export function MessageItem({ message, onQuote, onDelete, quotedMessage }: MessageItemProps) {
   const isUser = message.sender_type === 'user';
   const isAI = message.sender_type === 'ai';
   const isRSS = message.sender_type === 'rss';
@@ -28,6 +29,7 @@ export function MessageItem({ message, onQuote, quotedMessage }: MessageItemProp
         'flex mb-4 group',
         isUser ? 'justify-end' : 'justify-start'
       )}
+      data-message-id={message.id}
     >
       <div
         className={cn(
@@ -112,18 +114,40 @@ export function MessageItem({ message, onQuote, quotedMessage }: MessageItemProp
             {formatDate(message.created_at)}
           </div>
           
-          {/* 引用按钮 */}
-          {onQuote && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={() => onQuote(message)}
-              title="引用回复"
-            >
-              <Reply className="h-3 w-3" />
-            </Button>
-          )}
+          {/* 操作按钮 */}
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity relative z-10">
+            {/* 引用按钮 */}
+            {onQuote && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 relative z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onQuote(message);
+                }}
+                title="引用回复"
+              >
+                <Reply className="h-3 w-3" />
+              </Button>
+            )}
+            
+            {/* 删除按钮 */}
+            {onDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10 relative z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(message.id);
+                }}
+                title="删除消息"
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>

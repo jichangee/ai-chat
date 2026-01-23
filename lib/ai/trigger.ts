@@ -7,11 +7,22 @@ import { AIBot } from '@/types';
  * @returns 被触发的机器人列表
  */
 export function checkAITriggers(message: string, bots: AIBot[]): AIBot[] {
+  console.log('=== 开始检查AI触发 ===');
+  console.log('消息内容:', message);
+  console.log('机器人数量:', bots.length);
+  console.log('机器人列表:', bots.map(b => ({ 
+    name: b.name, 
+    is_active: b.is_active, 
+    keywords: b.trigger_keywords 
+  })));
+  
   // 检查是否 @all
   const mentionsAll = /@all(?:\s|$)/i.test(message);
   if (mentionsAll) {
     console.log('检测到 @all，触发所有活跃机器人');
-    return bots.filter(bot => bot.is_active);
+    const allBots = bots.filter(bot => bot.is_active);
+    console.log('触发结果:', allBots.map(b => b.name));
+    return allBots;
   }
 
   // 检查是否 @ 特定机器人
@@ -38,16 +49,21 @@ export function checkAITriggers(message: string, bots: AIBot[]): AIBot[] {
   });
 
   if (mentionedBots.length > 0) {
+    console.log('通过@触发:', mentionedBots.map(b => b.name));
     return mentionedBots;
   }
 
   // 如果没有@，则使用传统的关键词触发方式
   const triggeredBots = bots.filter(bot => {
-    if (!bot.is_active) return false;
-    
-    // 如果没有设置触发关键词，则不触发
-    if (!bot.trigger_keywords || bot.trigger_keywords.length === 0) {
+    if (!bot.is_active) {
+      console.log(`机器人 ${bot.name} 未激活，跳过`);
       return false;
+    }
+    
+    // 如果没有设置触发关键词，则总是触发（回复所有消息）
+    if (!bot.trigger_keywords || bot.trigger_keywords.length === 0) {
+      console.log(`机器人 ${bot.name} 没有设置关键词，将回复所有消息`);
+      return true;
     }
     
     // 过滤掉空字符串和只包含空白的关键词
@@ -55,17 +71,32 @@ export function checkAITriggers(message: string, bots: AIBot[]): AIBot[] {
       .map(k => k.trim())
       .filter(k => k.length > 0);
     
-    // 如果没有有效关键词，则不触发
+    // 如果没有有效关键词（只有空字符串），则总是触发
     if (validKeywords.length === 0) {
-      return false;
+      console.log(`机器人 ${bot.name} 没有有效关键词（只有空字符串），将回复所有消息`);
+      return true;
     }
     
+    console.log(`机器人 ${bot.name} 的有效关键词:`, validKeywords);
+    
     // 检查消息是否包含任何触发关键词
-    return validKeywords.some(keyword => 
-      message.toLowerCase().includes(keyword.toLowerCase())
-    );
+    const matched = validKeywords.some(keyword => {
+      const isMatch = message.toLowerCase().includes(keyword.toLowerCase());
+      if (isMatch) {
+        console.log(`机器人 ${bot.name} 匹配到关键词: "${keyword}"`);
+      }
+      return isMatch;
+    });
+    
+    if (!matched) {
+      console.log(`机器人 ${bot.name} 没有匹配到任何关键词，跳过`);
+    }
+    
+    return matched;
   });
   
+  console.log('通过关键词触发:', triggeredBots.map(b => b.name));
+  console.log('=== 检查完成，共触发', triggeredBots.length, '个机器人 ===');
   return triggeredBots;
 }
 
