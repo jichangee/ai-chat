@@ -219,7 +219,7 @@ export async function POST(request: NextRequest) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                       type: 'ai_chunk', 
                       content: chunk,
-                      messageId: tempMessageId,
+                      messageId: messageId,
                       botId: bot.id
                     })}\n\n`));
                   }
@@ -252,7 +252,7 @@ export async function POST(request: NextRequest) {
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
                     type: 'ai_complete', 
                     message: aiMessage,
-                    messageId: tempMessageId
+                    messageId: messageId
                   })}\n\n`));
 
                   // 检查是否需要发送 Bark 通知
@@ -268,7 +268,7 @@ export async function POST(request: NextRequest) {
                     baseURL: bot.base_url || 'https://api.openai.com/v1',
                     messageContent: messageForAI.substring(0, 100),
                     contextCount: enhancedContext.length,
-                    tempMessageId,
+                    messageId,
                     error: streamError instanceof Error ? {
                       name: streamError.name,
                       message: streamError.message,

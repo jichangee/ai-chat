@@ -56,58 +56,57 @@ export async function GET(request: NextRequest) {
         
         if (newItems.length > 0) {
 
-          // 保存新消息到数据库
-          for (const item of newItems) {
-            const messageContent = formatRSSItemAsMessage(item, feed.name);
-            
-            const messageResult = await sql`
-              INSERT INTO messages (
-                content,
-                sender_type,
-                sender_id,
-                sender_name,
-                metadata
-              )
-              VALUES (
-                ${messageContent},
-                'rss',
-                ${feed.id},
-                ${feed.name},
-                ${JSON.stringify({ 
-                  title: item.title, 
-                  link: item.link,
-                  pubDate: item.pubDate 
-                })}
-              )
-              RETURNING *
-            `;
+          // 只处理最新的一条消息
+          const latestItem = newItems[0];
+          const messageContent = formatRSSItemAsMessage(latestItem, feed.name);
+          
+          const messageResult = await sql`
+            INSERT INTO messages (
+              content,
+              sender_type,
+              sender_id,
+              sender_name,
+              metadata
+            )
+            VALUES (
+              ${messageContent},
+              'rss',
+              ${feed.id},
+              ${feed.name},
+              ${JSON.stringify({ 
+                title: latestItem.title, 
+                link: latestItem.link,
+                pubDate: latestItem.pubDate 
+              })}
+            )
+            RETURNING *
+          `;
 
-            const message = messageResult.rows[0];
+          const message = messageResult.rows[0];
 
-            // 检查是否需要发送通知
-            await checkAndSendNotification(message, feed.name);
+          // 检查是否需要发送通知
+          await checkAndSendNotification(message, feed.name);
 
-            // 检查是否触发 AI 机器人
-            await processAIBotTriggers(message, bots);
-          }
+          // 检查是否触发 AI 机器人
+          await processAIBotTriggers(message, bots);
 
           // 更新订阅源的最后获取时间和最新条目时间
-          const latestItemDate = newItems[0].pubDate;
           await sql`
             UPDATE rss_feeds
             SET 
               last_fetched_at = CURRENT_TIMESTAMP,
-              last_item_date = ${latestItemDate}
+              last_item_date = ${latestItem.pubDate}
             WHERE id = ${feed.id}
           `;
 
-          totalNewItems += newItems.length;
+          totalNewItems += 1;
           results.push({
             feed: feed.name,
-            newItems: newItems.length,
+            newItems: 1,
+            totalAvailable: newItems.length,
           });
           
-          console.log(`${feed.name}: 获取到 ${newItems.length} 条新消息`);
+          console.log(`${feed.name}: 发现 ${newItems.length} 条新消息，已发送最新的 1 条`);
         } else {
           // 即使没有新条目，也更新最后获取时间
           await sql`
