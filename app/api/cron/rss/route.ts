@@ -195,19 +195,21 @@ async function processAIBotTriggers(message: any, bots: AIBot[]) {
 
     // 为每个被触发的机器人生成回复
     for (const bot of triggeredBots) {
+      let placeholderId: string | null = null;
+      
       try {
         console.log(`机器人 ${bot.name} 正在处理 RSS 消息...`);
         
-        const aiResponse = await getAIResponse(bot, message.content, context);
-        
-        const aiMetadata = { 
+        // 先创建 loading 占位消息，让前端可以检测到并启动轮询
+        const loadingMetadata = { 
           model: bot.model, 
           bot_id: bot.id,
           triggered_by: 'rss',
-          rss_message_id: message.id
+          rss_message_id: message.id,
+          loading: true
         };
 
-        await sql`
+        const placeholderResult = await sql`
           INSERT INTO messages (
             content, 
             sender_type, 
@@ -217,13 +219,36 @@ async function processAIBotTriggers(message: any, bots: AIBot[]) {
             quoted_message_id
           )
           VALUES (
-            ${aiResponse}, 
+            '正在思考...', 
             'ai', 
             ${bot.id}, 
             ${bot.name},
-            ${JSON.stringify(aiMetadata)},
+            ${JSON.stringify(loadingMetadata)},
             ${message.id}
           )
+          RETURNING id
+        `;
+        
+        placeholderId = placeholderResult.rows[0].id;
+        console.log(`机器人 ${bot.name} 创建了占位消息 ${placeholderId}`);
+        
+        // 获取 AI 回复
+        const aiResponse = await getAIResponse(bot, message.content, context);
+        
+        // 更新占位消息为最终回复
+        const finalMetadata = { 
+          model: bot.model, 
+          bot_id: bot.id,
+          triggered_by: 'rss',
+          rss_message_id: message.id
+        };
+
+        await sql`
+          UPDATE messages 
+          SET 
+            content = ${aiResponse},
+            metadata = ${JSON.stringify(finalMetadata)}
+          WHERE id = ${placeholderId}
         `;
         
         console.log(`机器人 ${bot.name} 成功回复 RSS 消息`);
@@ -234,6 +259,28 @@ async function processAIBotTriggers(message: any, bots: AIBot[]) {
           model: bot.model,
           error: error instanceof Error ? error.message : String(error),
         });
+        
+        // 如果已创建占位消息但 AI 调用失败，更新为错误状态
+        if (placeholderId) {
+          const errorMetadata = { 
+            model: bot.model, 
+            bot_id: bot.id,
+            triggered_by: 'rss',
+            rss_message_id: message.id,
+            error: true
+          };
+          
+          await sql`
+            UPDATE messages 
+            SET 
+              content = ${'抱歉，处理消息时出错了。'},
+              metadata = ${JSON.stringify(errorMetadata)}
+            WHERE id = ${placeholderId}
+          `.catch(updateError => {
+            console.error(`更新错误消息失败:`, updateError);
+          });
+        }
+        
         // 继续处理其他机器人，不抛出异常
       }
     }
